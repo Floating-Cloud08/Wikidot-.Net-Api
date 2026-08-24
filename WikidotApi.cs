@@ -1,7 +1,6 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 /*
  __        __  _   _      _       _           _           _   _          _          _      ____    ___ 
  \ \      / / (_) | | __ (_)   __| |   ___   | |_        | \ | |   ___  | |_       / \    |  _ \  |_ _|
@@ -20,13 +19,13 @@ namespace WikidotNetApi
         public string username = "";
         public string password = "";
         string token = "wikidot-net-api";
-        HttpClient http = new HttpClient();
+        public HttpClient http = new HttpClient();
         public static bool debugMode = true;
         public static int debugPriority = 0;
         public static bool skipIcon = false;
         KeyValuePair<string, string> pageCache = new KeyValuePair<string, string>();
         KeyValuePair<string, Dictionary<string, string>> pageInfoCache = new KeyValuePair<string, Dictionary<string, string>>();
-        string get(string url, bool skipCache = false)
+        public string get(string url, bool skipCache = false)
         {
             if (!skipCache && pageCache.Key == url)
             {
@@ -37,7 +36,9 @@ namespace WikidotNetApi
             debug($"获取页面: {url}");
             try
             {
+                debug($"Get请求: {url}\n", -3);
                 string html = http.GetStringAsync(url).Result;
+                debug($"Get返回: {html}\n", -2);
                 pageCache = new KeyValuePair<string, string>(url, html);
                 return html;
             }
@@ -46,11 +47,11 @@ namespace WikidotNetApi
                 return $"获取页面失败: {ex.Message}";
             }
         }
-        string post(string url, Dictionary<string, string> data)
+        public string post(string url, Dictionary<string, string> data)
         {
             var httpContent = new FormUrlEncodedContent(data);
-            string result = http.PostAsync(url, httpContent).Result.Content.ReadAsStringAsync().Result;
             debug($"POST请求: {url}\n数据: {JsonSerializer.Serialize(data)}\n", -3);
+            string result = http.PostAsync(url, httpContent).Result.Content.ReadAsStringAsync().Result;
             debug($"Post返回: {result}\n",-2);
             return Regex.Unescape(result);
         }
@@ -58,7 +59,6 @@ namespace WikidotNetApi
         {
             if (!skipIcon)
             {
-                skipIcon = true;
                 Console.WriteLine(new String('=', 90));
                 Console.WriteLine(@"
  __        __  _   _      _       _           _           _   _          _          _      ____    ___ 
@@ -69,10 +69,11 @@ namespace WikidotNetApi
    --By FloatingCloud浮云
                 ");
                 Console.WriteLine(@$"全局设置:
-启用调试输出:{debugMode}
+启用调试输出:{debugMode}, 调试等级: {debugPriority}
 跳过启动提示:{skipIcon}"
                     );
                 Console.WriteLine(new String('=', 90));
+                skipIcon = true;
             }
         }
         public WikidotApi()
@@ -110,11 +111,11 @@ namespace WikidotNetApi
             });
             if (!result.Contains("The login and password do not match."))
             {
-                debug($"登录成功");
+                debug($"登录成功",color:ConsoleColor.Green);
             }
             else
             {
-                debug($"登录失败");
+                debug($"登录失败",color:ConsoleColor.Yellow);
                 throw new Exception("Wikidot登录失败");
             }
 
@@ -211,7 +212,7 @@ namespace WikidotNetApi
                 { "title",title},
                 { "lock_id",key[0] },
                 { "lock_secret",key[1]},
-                { "revision_id",key[2]}
+                { "revision_id",key[2]},
             };
             if (getPageInfo(page).TryGetValue("pageId", out string? pageId))
             {
@@ -220,25 +221,39 @@ namespace WikidotNetApi
             string result = post(module, dic);
             if (result.Contains("\"status\":\"ok\""))
             {
-                debug($"页面{page}编辑成功");
+                debug($"页面{page}编辑成功", color: ConsoleColor.Green);
                 debug(result,-1);
                 return true;
             }
             else if (result == "")
             {
-                debug($"页面{page}无变化");
+                debug($"页面{page}无变化", color: ConsoleColor.Yellow);
                 return true;
             }
             else if (result.Contains("\"status\":\"need_captcha\""))
             {
-                debug($"\n\n触发Wikidot验证码！请用该账号编辑任意页面，填写验证码后再继续脚本。",999);
-                debug("按任意键以继续...");
-                Console.ReadKey();
-                return false;
+                debug($"\n\n触发Wikidot验证码！打开以下链接，填写验证码后继续...",999, ConsoleColor.Red);
+                string captchaID = Regex.Match(result, "value=\\\"(?<content>.*?)\\\"").Groups["content"].Value;
+                dic.Add("mathCaptchaName", captchaID);
+                debug($"验证码: {url}/local--mathcaptcha/{captchaID}",999, ConsoleColor.Yellow);
+                debug("输入验证码后继续:", color: ConsoleColor.Yellow);
+                string answer = Console.ReadLine()??"";
+                dic.Add("mathCaptchaResult", answer);
+                result = post(module, dic);
+                if (result.Contains("\"status\":\"ok\""))
+                {
+                    debug($"页面{page}验证码认证成功", color: ConsoleColor.Green);
+                    return true;
+                }
+                else
+                {
+                    debug($"页面{page}验证码认证失败:\n {result}", color: ConsoleColor.Red);
+                    return false;
+                }
             }
             else
             {
-                debug($"页面{page}编辑失败:\n {result}");
+                debug($"页面{page}编辑失败:\n {result}", color: ConsoleColor.Red);
                 return false;
                 //throw new Exception("Wikidot编辑页面失败");
             }
@@ -294,6 +309,7 @@ namespace WikidotNetApi
         }
         public string getPageHtml(string page)
         {
+            if (page != "") page += "/noredirect/true";
             string html = get(url + page);
             return html;
         }
@@ -337,7 +353,7 @@ namespace WikidotNetApi
             }
             debug($"页面{page}信息获取完成");
             pageInfoCache = new KeyValuePair<string, Dictionary<string, string>>(page, info);
-            //debug($"页面{requestPage}信息: \n{Regex.Unescape(JsonSerializer.Serialize(info))}");
+            debug($"页面{page}信息: \n{Regex.Unescape(JsonSerializer.Serialize(info))}",-1);
             return info;
         }
         public bool joinSite(string password)
@@ -375,33 +391,34 @@ namespace WikidotNetApi
             bool success = result.Contains("\"status\":\"ok\"");
             if (success)
             {
-                debug($"加入站点成功");
+                debug($"加入站点成功", color: ConsoleColor.Green);
             }
             else
             {
-                debug($"加入站点失败:\n {result}");
+                debug($"加入站点失败:\n {result}", color: ConsoleColor.Red);
             }
             return success;
         }
         public bool leaveSite()
         {
             debug($"退出站点...");
+            bool hasSite = pageInfoCache.Value.TryGetValue("siteId", out string? siteId);
             Dictionary<string, string> dic = new Dictionary<string, string>() {
                 { "wikidot_token7", token },
                 { "action","DashboardSitesAction"},
                 { "moduleName","Empty"},
                 {"event","memberSignOff" },
-                { "site_id", pageInfoCache.Value["siteId"] }
+                { "site_id", siteId??""}
             };
             string result = post("https://www.wikidot.com/ajax-module-connector.php", dic);
             bool success = result.Contains("\"status\":\"ok\"");
             if (success)
             {
-                debug($"退出站点成功");
+                debug($"退出站点成功", color: ConsoleColor.Green);
             }
             else
             {
-                debug($"退出站点失败:\n {result}");
+                debug($"退出站点失败:\n {result}", color: ConsoleColor.Red);
             }
             return success;
         }
@@ -558,11 +575,13 @@ namespace WikidotNetApi
             debug($"获取页面{pageId}的论坛主题id: {threadId}");
             return threadPost(threadId, content, title, reply);
         }
-        static void debug(object s,int priority = 0)
+        static void debug(object s,int priority = 0,ConsoleColor color = default)
         {
             if (debugMode && priority >= debugPriority)
             {
+                if(color != default)Console.ForegroundColor = color;
                 Console.WriteLine(s);
+                if (color != default) Console.ResetColor();
             }
         }
         static void Main(string[] args)
