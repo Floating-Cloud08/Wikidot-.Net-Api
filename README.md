@@ -22,7 +22,7 @@ var api = new WikidotApi("username", "password", "site");
 
 // 编辑页面
 bool success = api.editPage("page-name", "新内容", "标题", "更新说明");
-bool delSuccess = deletePage("page-name");//删除页面
+bool delSuccess = api.deletePage("page-name");//删除页面
 
 // 获取页面信息
 var info = api.getPageInfo("page-name");
